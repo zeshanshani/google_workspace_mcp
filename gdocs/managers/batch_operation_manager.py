@@ -272,6 +272,7 @@ class BatchOperationManager:
                 ("indent_end", "end indent"),
                 ("space_above", "space above"),
                 ("space_below", "space below"),
+                ("named_style_type", "named style"),
             ]:
                 if op.get(param) is not None:
                     raw = op[param]
@@ -445,8 +446,9 @@ class BatchOperationManager:
                         "indent_end",
                         "space_above",
                         "space_below",
+                        "named_style_type",
                     ],
-                    "description": "Apply paragraph-level styling (headings, alignment, spacing, indentation)",
+                    "description": "Apply paragraph-level styling (headings, named styles like TITLE/SUBTITLE, alignment, spacing, indentation)",
                 },
                 "insert_table": {
                     "required": ["index", "rows", "columns"],

@@ -113,7 +113,7 @@ def build_paragraph_style(
     indent_end: float = None,
     space_above: float = None,
     space_below: float = None,
-    named_style_type: str = None,
+    named_style_type: Optional[str] = None,
 ) -> tuple[Dict[str, Any], list[str]]:
     """
     Build paragraph style object for Google Docs API requests.
@@ -337,7 +337,7 @@ def create_update_paragraph_style_request(
     space_above: float = None,
     space_below: float = None,
     tab_id: Optional[str] = None,
-    named_style_type: str = None,
+    named_style_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Create an updateParagraphStyle request for Google Docs API.
