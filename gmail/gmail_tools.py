@@ -47,6 +47,9 @@ GMAIL_METADATA_HEADERS = [
     "In-Reply-To",
     "References",
     "Date",
+    "List-Unsubscribe",
+    "Precedence",
+    "List-Id",
 ]
 LOW_VALUE_TEXT_PLACEHOLDERS = (
     "your client does not support html",
@@ -840,6 +843,16 @@ async def search_gmail_messages(
 
 
 @server.tool()
+def _mailing_list_header_lines(headers: Dict[str, str]) -> List[str]:
+    """Return formatted lines for mailing-list headers present in *headers*."""
+    lines: List[str] = []
+    for key in ("List-Unsubscribe", "Precedence", "List-Id"):
+        value = headers.get(key, "")
+        if value:
+            lines.append(f"{key}: {value}")
+    return lines
+
+
 @handle_http_errors(
     "get_gmail_message_content", is_read_only=True, service_type="gmail"
 )
@@ -929,6 +942,8 @@ async def get_gmail_message_content(
         content_lines.append(f"To:      {to}")
     if cc:
         content_lines.append(f"Cc:      {cc}")
+
+    content_lines.extend(_mailing_list_header_lines(headers))
 
     content_lines.append(f"\n--- BODY ---\n{body_data or '[No text/plain body found]'}")
 
@@ -1108,6 +1123,10 @@ async def get_gmail_messages_content_batch(
                         msg_output += f"To: {to}\n"
                     if cc:
                         msg_output += f"Cc: {cc}\n"
+
+                    for header_line in _mailing_list_header_lines(headers):
+                        msg_output += f"{header_line}\n"
+
                     msg_output += f"Web Link: {_generate_gmail_web_url(mid)}\n"
 
                     output_messages.append(msg_output)
@@ -1146,6 +1165,10 @@ async def get_gmail_messages_content_batch(
                         msg_output += f"To: {to}\n"
                     if cc:
                         msg_output += f"Cc: {cc}\n"
+
+                    for header_line in _mailing_list_header_lines(headers):
+                        msg_output += f"{header_line}\n"
+
                     msg_output += (
                         f"Web Link: {_generate_gmail_web_url(mid)}\n\n{body_data}\n"
                     )
