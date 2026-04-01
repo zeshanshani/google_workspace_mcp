@@ -9,7 +9,7 @@ import asyncio
 import io
 import inspect
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Any, Optional
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -34,6 +34,7 @@ from gdocs.docs_helpers import (
     create_update_doc_tab_request,
     create_delete_doc_tab_request,
     validate_suggestions_view_mode,
+    create_update_paragraph_style_request,
 )
 
 # Import document structure and table utilities
