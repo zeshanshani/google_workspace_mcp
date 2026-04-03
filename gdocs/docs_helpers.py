@@ -595,6 +595,11 @@ def build_table_cell_style(
     background_color: str = None,
     border_color: str = None,
     border_width: float = None,
+    padding_top: float = None,
+    padding_bottom: float = None,
+    padding_left: float = None,
+    padding_right: float = None,
+    content_alignment: str = None,
 ) -> tuple[Dict[str, Any], list[str]]:
     """
     Build a table cell style object for Google Docs API requests.
@@ -603,6 +608,11 @@ def build_table_cell_style(
         background_color: Cell background color as hex string "#RRGGBB"
         border_color: Cell border color as hex string "#RRGGBB"
         border_width: Cell border width in points
+        padding_top: Top padding in points
+        padding_bottom: Bottom padding in points
+        padding_left: Left padding in points
+        padding_right: Right padding in points
+        content_alignment: Vertical content alignment ("TOP", "MIDDLE", "BOTTOM")
 
     Returns:
         Tuple of (table_cell_style_dict, list_of_field_names)
@@ -628,6 +638,20 @@ def build_table_cell_style(
         rgb = _normalize_color(background_color, "background_color")
         table_cell_style["backgroundColor"] = {"color": {"rgbColor": rgb}}
         fields.append("backgroundColor")
+
+    for padding_value, api_key in (
+        (padding_top, "paddingTop"),
+        (padding_bottom, "paddingBottom"),
+        (padding_left, "paddingLeft"),
+        (padding_right, "paddingRight"),
+    ):
+        if padding_value is not None:
+            table_cell_style[api_key] = {"magnitude": padding_value, "unit": "PT"}
+            fields.append(api_key)
+
+    if content_alignment is not None:
+        table_cell_style["contentAlignment"] = content_alignment.upper()
+        fields.append("contentAlignment")
 
     return table_cell_style, fields
 
@@ -916,6 +940,11 @@ def create_update_table_cell_style_request(
     background_color: str = None,
     border_color: str = None,
     border_width: float = None,
+    padding_top: float = None,
+    padding_bottom: float = None,
+    padding_left: float = None,
+    padding_right: float = None,
+    content_alignment: str = None,
     row_index: int = None,
     column_index: int = None,
     row_span: int = None,
@@ -930,6 +959,11 @@ def create_update_table_cell_style_request(
         background_color: Cell background color as hex string "#RRGGBB"
         border_color: Cell border color as hex string "#RRGGBB"
         border_width: Cell border width in points
+        padding_top: Top padding in points
+        padding_bottom: Bottom padding in points
+        padding_left: Left padding in points
+        padding_right: Right padding in points
+        content_alignment: Vertical content alignment ("TOP", "MIDDLE", "BOTTOM")
         row_index: Optional starting row index for a sub-range
         column_index: Optional starting column index for a sub-range
         row_span: Optional row span for a sub-range (defaults to 1)
@@ -944,6 +978,11 @@ def create_update_table_cell_style_request(
         background_color=background_color,
         border_color=border_color,
         border_width=border_width,
+        padding_top=padding_top,
+        padding_bottom=padding_bottom,
+        padding_left=padding_left,
+        padding_right=padding_right,
+        content_alignment=content_alignment,
     )
     if not table_cell_style:
         return None

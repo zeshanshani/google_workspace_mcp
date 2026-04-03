@@ -450,6 +450,11 @@ class BatchOperationManager:
                     background_color=op.get("background_color"),
                     border_color=op.get("border_color"),
                     border_width=op.get("border_width"),
+                    padding_top=op.get("padding_top"),
+                    padding_bottom=op.get("padding_bottom"),
+                    padding_left=op.get("padding_left"),
+                    padding_right=op.get("padding_right"),
+                    content_alignment=op.get("content_alignment"),
                     row_index=op.get("row_index"),
                     column_index=op.get("column_index"),
                     row_span=op.get("row_span"),
@@ -464,6 +469,11 @@ class BatchOperationManager:
                 background_color=op.get("background_color"),
                 border_color=op.get("border_color"),
                 border_width=op.get("border_width"),
+                padding_top=op.get("padding_top"),
+                padding_bottom=op.get("padding_bottom"),
+                padding_left=op.get("padding_left"),
+                padding_right=op.get("padding_right"),
+                content_alignment=op.get("content_alignment"),
                 row_index=op.get("row_index"),
                 column_index=op.get("column_index"),
                 row_span=op.get("row_span"),
@@ -479,9 +489,14 @@ class BatchOperationManager:
                 ("background_color", "background"),
                 ("border_color", "border color"),
                 ("border_width", "border width"),
+                ("padding_top", "padding top"),
+                ("padding_bottom", "padding bottom"),
+                ("padding_left", "padding left"),
+                ("padding_right", "padding right"),
+                ("content_alignment", "content alignment"),
             ]:
                 if op.get(param) is not None:
-                    value = f"{op[param]}pt" if param == "border_width" else op[param]
+                    value = f"{op[param]}pt" if param in ("border_width", "padding_top", "padding_bottom", "padding_left", "padding_right") else op[param]
                     style_changes.append(f"{name}: {value}")
 
             if op.get("row_index") is not None:
@@ -882,6 +897,11 @@ class BatchOperationManager:
                         "background_color",
                         "border_color",
                         "border_width",
+                        "padding_top",
+                        "padding_bottom",
+                        "padding_left",
+                        "padding_right",
+                        "content_alignment",
                         "row_index",
                         "column_index",
                         "row_span",

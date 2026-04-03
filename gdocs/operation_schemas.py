@@ -128,6 +128,11 @@ class UpdateTableCellStyleOperation(StrictDocOperation):
     background_color: Optional[str] = None
     border_color: Optional[str] = None
     border_width: Optional[float] = None
+    padding_top: Optional[float] = None
+    padding_bottom: Optional[float] = None
+    padding_left: Optional[float] = None
+    padding_right: Optional[float] = None
+    content_alignment: Optional[str] = None
     row_index: Optional[int] = None
     column_index: Optional[int] = None
     row_span: Optional[int] = None

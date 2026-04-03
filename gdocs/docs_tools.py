@@ -1078,6 +1078,9 @@ async def batch_update_doc(
       update_table_cell_style
                        - required: table_start_index (int)
                          optional: background_color, border_color, border_width,
+                                   padding_top, padding_bottom, padding_left,
+                                   padding_right (float, points),
+                                   content_alignment ("TOP"|"MIDDLE"|"BOTTOM"),
                                    row_index, column_index, row_span, column_span
                          Use inspect_doc_structure to find table_start_index from
                          table_details[].start_index. If row/column values are
