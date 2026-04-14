@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # In-memory cache for user ID → display name (bounded to avoid unbounded growth)
 _SENDER_CACHE_MAX_SIZE = 256
 _sender_name_cache: Dict[str, str] = {}
-_SEARCH_MESSAGES_MAX_CONCURRENT_SPACE_FETCHES = 3
+_SEARCH_MESSAGES_MAX_CONCURRENT_SPACE_FETCHES = 1
 _SEARCH_MESSAGES_SSL_RETRIES = 3
 _SEARCH_MESSAGES_RETRY_BASE_DELAY_SECONDS = 1
 
@@ -384,12 +384,9 @@ async def search_messages(
         f"[search_messages] Email={user_google_email}, Query='{query}', TimeFilter='{time_filter}'"
     )
 
-    # Build API filter string. Keep client-side filtering as a fallback so
-    # result formatting stays consistent even if the backend returns extra rows.
+    # Google Chat messages.list supports time/thread filters, but not full-text
+    # search. Apply only supported API filters, then filter message text below.
     filter_parts = []
-    if query:
-        escaped_query = query.replace("\\", "\\\\").replace('"', '\\"')
-        filter_parts.append(f'text:"{escaped_query}"')
     if time_filter:
         filter_parts.append(time_filter)
     filter_str = " AND ".join(filter_parts) if filter_parts else None
@@ -463,7 +460,7 @@ async def search_messages(
         for batch, had_transient_failure in results:
             messages.extend(batch)
             transient_failures += int(had_transient_failure)
-        if transient_failures and not messages:
+        if spaces_to_search and transient_failures == len(spaces_to_search):
             raise TransientNetworkError(
                 "A transient SSL error occurred in 'search_messages' while searching Chat spaces. "
                 "Please try again shortly."
@@ -476,19 +473,24 @@ async def search_messages(
         messages = [m for m in messages if query_lower in (m.get("text") or "").lower()]
 
     if not messages:
-        return f"No messages found matching '{search_desc}' in {context}."
+        suffix = (
+            f" Skipped {transient_failures} spaces due to repeated SSL failures."
+            if "transient_failures" in locals() and transient_failures
+            else ""
+        )
+        return f"No messages found matching '{search_desc}' in {context}.{suffix}"
 
-    # Pre-resolve unique senders in parallel
+    # Resolve senders sequentially. The underlying googleapiclient/httplib2
+    # service objects are not safe to fan out heavily and can trigger SSL churn.
     sender_lookup = {}
     for msg in messages:
         s = msg.get("sender", {})
         key = s.get("name", "")
         if key and key not in sender_lookup:
             sender_lookup[key] = s
-    resolved_names = await asyncio.gather(
-        *[_resolve_sender(people_service, s) for s in sender_lookup.values()]
-    )
-    sender_map = dict(zip(sender_lookup.keys(), resolved_names))
+    sender_map = {}
+    for key, sender_obj in sender_lookup.items():
+        sender_map[key] = await _resolve_sender(people_service, sender_obj)
 
     output = [f"Found {len(messages)} messages matching '{search_desc}' in {context}:"]
     for msg in messages:
