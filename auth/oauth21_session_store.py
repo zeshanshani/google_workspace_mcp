@@ -35,7 +35,9 @@ def _get_default_oauth_state_file() -> str:
         else:
             home_dir = os.path.expanduser("~")
             if home_dir and home_dir != "~":
-                base_dir = os.path.join(home_dir, ".google_workspace_mcp", "credentials")
+                base_dir = os.path.join(
+                    home_dir, ".google_workspace_mcp", "credentials"
+                )
             else:
                 base_dir = os.path.join(os.getcwd(), ".credentials")
 
