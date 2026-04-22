@@ -1,3 +1,4 @@
+import pytest
 from google.oauth2.credentials import Credentials
 
 from auth.google_auth import handle_auth_callback
@@ -18,6 +19,9 @@ class _DummyOAuthStore:
 
     def validate_and_consume_oauth_state(self, state, session_id=None):  # noqa: ARG002
         return {"session_id": session_id, "code_verifier": "verifier"}
+
+    def consume_latest_oauth_state(self, initiating_session_id=None):  # noqa: ARG002
+        return {"session_id": None, "code_verifier": "verifier"}
 
     def get_credentials_by_mcp_session(self, mcp_session_id):  # noqa: ARG002
         return self._session_credentials
@@ -126,3 +130,40 @@ def test_callback_prefers_session_refresh_token_over_credential_store(monkeypatc
     assert credentials.refresh_token == "session-refresh-token"
     assert credential_store.saved_credentials.refresh_token == "session-refresh-token"
     assert oauth_store.stored_refresh_token == "session-refresh-token"
+
+
+def test_callback_raises_when_google_rejects_pkce_verifier(monkeypatch):
+    """Test that PKCE verifier rejection raises exception with clear error message.
+
+    OAuth authorization codes are single-use, so retry is not possible.
+    The auth flow must be restarted from the beginning.
+    """
+    oauth_store = _DummyOAuthStore(session_credentials=None)
+    credential_store = _DummyCredentialStore(existing_credentials=None)
+
+    class _FailingFlow:
+        def fetch_token(self, authorization_response):  # noqa: ARG002
+            raise Exception(
+                "(invalid_grant) code_verifier or verifier is not needed."
+            )
+
+    def _fake_create_oauth_flow(**kwargs):  # noqa: ARG001
+        return _FailingFlow()
+
+    monkeypatch.setattr("auth.google_auth.create_oauth_flow", _fake_create_oauth_flow)
+    monkeypatch.setattr(
+        "auth.google_auth.get_oauth21_session_store", lambda: oauth_store
+    )
+    monkeypatch.setattr(
+        "auth.google_auth.get_credential_store", lambda: credential_store
+    )
+    monkeypatch.setattr("auth.google_auth.is_stateless_mode", lambda: False)
+
+    # Verify the exception is raised
+    with pytest.raises(Exception, match="code_verifier or verifier is not needed"):
+        handle_auth_callback(
+            scopes=["scope.a"],
+            authorization_response="http://localhost/callback?state=abc123&code=code123",
+            redirect_uri="http://localhost/callback",
+            session_id="session-1",
+        )
