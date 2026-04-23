@@ -2,10 +2,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
 RUN pip install --no-cache-dir uv
 
 COPY . .
@@ -18,8 +14,9 @@ USER app
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
+# Railway does its own healthcheck via railway.json (healthcheckPath: /health).
+# Don't duplicate it here — a failing Docker HEALTHCHECK surfaces as a separate
+# error and the `curl` dep adds cold-image bloat we don't otherwise need.
 
 ENV TOOL_TIER="core"
 
