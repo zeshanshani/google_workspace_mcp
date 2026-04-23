@@ -203,18 +203,7 @@ class TestFileStoreRoundTrip:
 
 
 class TestConsistency:
-    """Verify CLI and server both delegate to the shared factory."""
-
-    def test_cli_imports_shared_factory(self):
-        """core.cli must use make_sanitized_file_store, not inline config."""
-        import inspect
-
-        import core.cli as cli_module
-
-        source = inspect.getsource(cli_module._get_token_storage)
-        assert "make_sanitized_file_store" in source
-        # Must NOT contain the old inline pattern
-        assert "HybridSanitizationStrategy" not in source
+    """Verify server delegates to the shared factory."""
 
     def test_server_references_shared_factory(self):
         """core.server must use make_sanitized_file_store, not inline config."""

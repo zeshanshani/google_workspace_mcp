@@ -1,16 +1,14 @@
 """
-Granular per-service permission levels.
+Granular per-service permission levels (Gmail-only build).
 
 Each service has named permission levels (cumulative), mapping to a list of
 OAuth scopes. The levels for a service are ordered from least to most
 permissive — requesting level N implicitly includes all scopes from levels < N.
 
 Usage:
-    --permissions gmail:organize drive:readonly
+    --permissions gmail:organize
 
 Gmail levels: readonly, organize, drafts, send, full
-Tasks levels: readonly, manage, full
-Other services: readonly, full (extensible by adding entries to SERVICE_PERMISSION_LEVELS)
 """
 
 import logging
@@ -23,36 +21,6 @@ from auth.scopes import (
     GMAIL_COMPOSE_SCOPE,
     GMAIL_SEND_SCOPE,
     GMAIL_SETTINGS_BASIC_SCOPE,
-    DRIVE_READONLY_SCOPE,
-    DRIVE_FILE_SCOPE,
-    DRIVE_SCOPE,
-    CALENDAR_READONLY_SCOPE,
-    CALENDAR_EVENTS_SCOPE,
-    CALENDAR_SCOPE,
-    DOCS_READONLY_SCOPE,
-    DOCS_WRITE_SCOPE,
-    SHEETS_READONLY_SCOPE,
-    SHEETS_WRITE_SCOPE,
-    CHAT_READONLY_SCOPE,
-    CHAT_WRITE_SCOPE,
-    CHAT_SPACES_SCOPE,
-    CHAT_SPACES_READONLY_SCOPE,
-    FORMS_BODY_SCOPE,
-    FORMS_BODY_READONLY_SCOPE,
-    FORMS_RESPONSES_READONLY_SCOPE,
-    SLIDES_SCOPE,
-    SLIDES_READONLY_SCOPE,
-    TASKS_SCOPE,
-    TASKS_READONLY_SCOPE,
-    CONTACTS_SCOPE,
-    CONTACTS_READONLY_SCOPE,
-    CUSTOM_SEARCH_SCOPE,
-    SCRIPT_PROJECTS_SCOPE,
-    SCRIPT_PROJECTS_READONLY_SCOPE,
-    SCRIPT_DEPLOYMENTS_SCOPE,
-    SCRIPT_DEPLOYMENTS_READONLY_SCOPE,
-    SCRIPT_PROCESSES_READONLY_SCOPE,
-    SCRIPT_METRICS_SCOPE,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,79 +36,12 @@ SERVICE_PERMISSION_LEVELS: Dict[str, List[Tuple[str, List[str]]]] = {
         ("send", [GMAIL_SEND_SCOPE]),
         ("full", [GMAIL_SETTINGS_BASIC_SCOPE]),
     ],
-    "drive": [
-        ("readonly", [DRIVE_READONLY_SCOPE]),
-        ("full", [DRIVE_SCOPE, DRIVE_FILE_SCOPE]),
-    ],
-    "calendar": [
-        ("readonly", [CALENDAR_READONLY_SCOPE]),
-        ("full", [CALENDAR_SCOPE, CALENDAR_EVENTS_SCOPE]),
-    ],
-    "docs": [
-        ("readonly", [DOCS_READONLY_SCOPE, DRIVE_READONLY_SCOPE]),
-        ("full", [DOCS_WRITE_SCOPE, DRIVE_READONLY_SCOPE, DRIVE_FILE_SCOPE]),
-    ],
-    "sheets": [
-        ("readonly", [SHEETS_READONLY_SCOPE, DRIVE_READONLY_SCOPE]),
-        ("full", [SHEETS_WRITE_SCOPE, DRIVE_READONLY_SCOPE]),
-    ],
-    "chat": [
-        ("readonly", [CHAT_READONLY_SCOPE, CHAT_SPACES_READONLY_SCOPE]),
-        ("full", [CHAT_WRITE_SCOPE, CHAT_SPACES_SCOPE]),
-    ],
-    "forms": [
-        ("readonly", [FORMS_BODY_READONLY_SCOPE, FORMS_RESPONSES_READONLY_SCOPE]),
-        ("full", [FORMS_BODY_SCOPE, FORMS_RESPONSES_READONLY_SCOPE]),
-    ],
-    "slides": [
-        ("readonly", [SLIDES_READONLY_SCOPE]),
-        ("full", [SLIDES_SCOPE]),
-    ],
-    "tasks": [
-        ("readonly", [TASKS_READONLY_SCOPE]),
-        ("manage", [TASKS_SCOPE]),
-        ("full", []),
-    ],
-    "contacts": [
-        ("readonly", [CONTACTS_READONLY_SCOPE]),
-        ("full", [CONTACTS_SCOPE]),
-    ],
-    "search": [
-        ("readonly", [CUSTOM_SEARCH_SCOPE]),
-        ("full", [CUSTOM_SEARCH_SCOPE]),
-    ],
-    "appscript": [
-        (
-            "readonly",
-            [
-                SCRIPT_PROJECTS_READONLY_SCOPE,
-                SCRIPT_DEPLOYMENTS_READONLY_SCOPE,
-                SCRIPT_PROCESSES_READONLY_SCOPE,
-                SCRIPT_METRICS_SCOPE,
-                DRIVE_READONLY_SCOPE,
-            ],
-        ),
-        (
-            "full",
-            [
-                SCRIPT_PROJECTS_SCOPE,
-                SCRIPT_DEPLOYMENTS_SCOPE,
-                SCRIPT_PROCESSES_READONLY_SCOPE,
-                SCRIPT_METRICS_SCOPE,
-                DRIVE_FILE_SCOPE,
-            ],
-        ),
-    ],
 }
 
 # Actions denied at specific permission levels.
 # Maps service -> level -> frozenset of denied action names.
 # Levels not listed here (or services without entries) deny nothing.
-SERVICE_DENIED_ACTIONS: Dict[str, Dict[str, FrozenSet[str]]] = {
-    "tasks": {
-        "manage": frozenset({"delete", "clear_completed"}),
-    },
-}
+SERVICE_DENIED_ACTIONS: Dict[str, Dict[str, FrozenSet[str]]] = {}
 
 
 def is_action_denied(service: str, action: str) -> bool:
@@ -247,7 +148,7 @@ def get_valid_levels(service: str) -> List[str]:
 
 def parse_permissions_arg(permissions_list: List[str]) -> Dict[str, str]:
     """
-    Parse --permissions arguments like ["gmail:organize", "drive:full"].
+    Parse --permissions arguments like ["gmail:organize"].
 
     Returns dict mapping service -> level.
     Raises ValueError on parse errors (unknown service, invalid level, bad format).
@@ -257,7 +158,7 @@ def parse_permissions_arg(permissions_list: List[str]) -> Dict[str, str]:
         if ":" not in entry:
             raise ValueError(
                 f"Invalid permission format: '{entry}'. "
-                f"Expected 'service:level' (e.g., 'gmail:organize', 'drive:readonly')"
+                f"Expected 'service:level' (e.g., 'gmail:organize')"
             )
         service, level = entry.split(":", 1)
         if service in result:

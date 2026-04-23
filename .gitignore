@@ -3,9 +3,8 @@ __pycache__/
 *.py[cod]
 *.so
 .mcp.json
-claude.md
-.beads/*
-.beads/issues.jsonl
+.pytest_cache/
+.ruff_cache/
 
 # ---- Packaging ---------------------------------------------------------
 *.egg-info/
@@ -24,6 +23,11 @@ venv/
 
 # ---- Secrets -----------------------------------------------------------
 client_secret.json
+*.pem
+*.key
+credentials/
+oauth_states.json
+store_creds/
 
 # ---- Logs --------------------------------------------------------------
 mcp_server_debug.log
@@ -32,8 +36,3 @@ mcp_server_debug.log
 /.credentials
 /.claude
 .serena/
-Caddyfile
-ecosystem.config.cjs
-
-# ---- Agent instructions (not for distribution) -------------------------
-.github/instructions/
