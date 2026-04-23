@@ -254,13 +254,26 @@ def check_credentials_directory_permissions(credentials_dir: str = None) -> None
         credentials_dir = get_default_credentials_dir()
 
     try:
-        # Check if directory exists
+        # Security audit finding 1.2: create the directory with 0o700 explicitly
+        # rather than relying on the process umask, and narrow permissions if the
+        # directory already exists with looser modes. Credential files must not
+        # be world-readable.
         if os.path.exists(credentials_dir):
-            # Directory exists, check if we can write to it
+            try:
+                os.chmod(credentials_dir, 0o700)
+            except (PermissionError, OSError) as e:
+                logger.warning(
+                    f"Could not tighten permissions on {os.path.abspath(credentials_dir)}: {e}"
+                )
             test_file = os.path.join(credentials_dir, ".permission_test")
             try:
-                with open(test_file, "w") as f:
-                    f.write("test")
+                fd = os.open(
+                    test_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+                )
+                try:
+                    os.write(fd, b"test")
+                finally:
+                    os.close(fd)
                 os.remove(test_file)
                 logger.info(
                     f"Credentials directory permissions check passed: {os.path.abspath(credentials_dir)}"
@@ -270,19 +283,24 @@ def check_credentials_directory_permissions(credentials_dir: str = None) -> None
                     f"Cannot write to existing credentials directory '{os.path.abspath(credentials_dir)}': {e}"
                 )
         else:
-            # Directory doesn't exist, try to create it and its parent directories
             try:
-                os.makedirs(credentials_dir, exist_ok=True)
-                # Test writing to the new directory
+                os.makedirs(credentials_dir, mode=0o700, exist_ok=True)
+                # makedirs only applies mode to newly created leaves; tighten
+                # defensively in case an intermediate layer pre-existed.
+                os.chmod(credentials_dir, 0o700)
                 test_file = os.path.join(credentials_dir, ".permission_test")
-                with open(test_file, "w") as f:
-                    f.write("test")
+                fd = os.open(
+                    test_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+                )
+                try:
+                    os.write(fd, b"test")
+                finally:
+                    os.close(fd)
                 os.remove(test_file)
                 logger.info(
                     f"Created credentials directory with proper permissions: {os.path.abspath(credentials_dir)}"
                 )
             except (PermissionError, OSError) as e:
-                # Clean up if we created the directory but can't write to it
                 try:
                     if os.path.exists(credentials_dir):
                         os.rmdir(credentials_dir)

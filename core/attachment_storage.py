@@ -64,6 +64,15 @@ class AttachmentStorage:
         """
         _ensure_storage_dir()
 
+        # Security audit finding 4.1: reject filenames containing path
+        # separators or null bytes. Path.stem collapses these in practice, but
+        # make the invariant explicit so a future refactor can't reintroduce
+        # traversal.
+        if filename and any(c in filename for c in ("/", "\\", "\x00")):
+            raise ValueError(
+                "Attachment filename must not contain path separators or null bytes"
+            )
+
         # Generate unique file ID for metadata tracking
         file_id = str(uuid.uuid4())
 

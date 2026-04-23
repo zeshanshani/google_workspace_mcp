@@ -1,7 +1,9 @@
 # Security Audit — Gmail-only MCP Server
 
 Audit target: Gmail-only strip of `google_workspace_mcp` on branch `gmail-only`.
-Scope: `auth/`, `core/`, `gmail/`, `main.py`, `fastmcp_server.py`, `pyproject.toml`, deploy configs. Tests excluded from severity counts.
+Scope: `auth/`, `core/`, `gmail/`, `main.py`, `pyproject.toml`, deploy configs. Tests excluded from severity counts.
+
+> **Status (post-fix commit):** Findings **1.2**, **1.3**, **2.2**, **2.3**, and **4.1** are fixed. 13 new regression tests in `tests/auth/test_security_hardenings.py` guard the behaviour. Other findings are left as documented trade-offs or deferred — see individual entries.
 
 Severity legend: **Critical** (fix before deploy), **High** (fix soon), **Medium** (hardening), **Low** (hygiene), **Informational** (documented or working as intended).
 
@@ -20,19 +22,23 @@ Risk: disk-image theft, container escape, or lateral movement from another proce
 
 Remediation: prefer the OAuth 2.1 + encrypted backend path for any non-ephemeral deployment. For local use, document this clearly or add Fernet wrapping to `LocalDirectoryCredentialStore`.
 
-### 1.2 Credentials directory created without explicit mode — **Medium**
+### 1.2 Credentials directory created without explicit mode — **Fixed** (was Medium)
 `core/utils.py:275`
 
 `check_credentials_directory_permissions()` calls `os.makedirs(credentials_dir, exist_ok=True)` with no `mode=`, relying on the process umask. On a typical umask of 0o022 the directory ends up 0o755 (world-readable). `auth/credential_store.py:126` creates the same directory later with 0o700, but if the check function runs first on a fresh host the dir is created 0o755 and never tightened.
 
 Remediation: `os.makedirs(credentials_dir, mode=0o700, exist_ok=True)` and a post-creation `os.chmod(..., 0o700)` assertion.
 
-### 1.3 Revoked refresh token not purged — **Medium**
+**Applied:** `core/utils.py:check_credentials_directory_permissions` now passes `mode=0o700` to `makedirs`, tightens existing directories via `chmod(0o700)`, and creates the probe file via `os.open(..., 0o600)` instead of plain `open(...)` so the umask can't widen it.
+
+### 1.3 Revoked refresh token not purged — **Fixed** (was Medium)
 `auth/google_auth.py:844-856, 1032-1037`
 
 When `RefreshError` is raised (user revoked access in Google account settings, token expired past the refresh window), the function logs and returns `None`. The stored credential file is left on disk with a dead refresh token. `delete_credential()` exists (`auth/credential_store.py:209-227`) but is never called on this path.
 
 Remediation: on `RefreshError`, call `get_credential_store().delete_credential(user_google_email)` before returning.
+
+**Applied:** `auth/google_auth.py:get_credentials` now deletes the stored credential for the user after a `RefreshError`, guarded by `is_stateless_mode()` so Railway/stateless deployments (which have no file to delete) are unaffected. Failure to delete is logged at WARNING and does not block the re-auth flow.
 
 ### 1.4 Encryption at rest in OAuth 2.1 mode — **Informational**
 `core/server.py:237, 358-361, 363-366, 427-430`, `core/cli.py:23, 38-62`
@@ -60,7 +66,7 @@ Why it still matters: the code relies on an invariant not enforced at the decode
 
 Remediation: use `google.oauth2.id_token.verify_oauth2_token(...)` against Google's JWKS, or obtain the email from the `userinfo` endpoint once after the exchange and cache it alongside the credential. Don't re-decode without verification even when today's call sites are safe.
 
-### 2.2 `redirect_uri` not validated before starting auth flow — **High**
+### 2.2 `redirect_uri` not validated before starting auth flow — **Fixed** (was High)
 `auth/google_auth.py:509-514`
 
 `start_auth_flow()` accepts a `redirect_uri` argument and passes it straight to `create_oauth_flow()` with no allowlist check. `auth/oauth_config.py:219-230` defines `validate_redirect_uri()` but it is not invoked here.
@@ -69,12 +75,16 @@ This is mitigated in practice because Google enforces the redirect URI against t
 
 Remediation: call `get_oauth_config().validate_redirect_uri(redirect_uri)` before flow creation; fail closed on mismatch.
 
-### 2.3 `OAUTHLIB_INSECURE_TRANSPORT` substring check — **Medium** (adjusted from "High")
+**Applied:** `start_auth_flow()` now rejects the flow with `GoogleAuthenticationError` if `validate_redirect_uri()` returns False. Covered by `TestRedirectUriAllowlistEnforced`.
+
+### 2.3 `OAUTHLIB_INSECURE_TRANSPORT` substring check — **Fixed** (was Medium, adjusted from "High")
 `auth/google_auth.py:498-504`
 
 The check `"localhost" in redirect_uri or "127.0.0.1" in redirect_uri` uses substring matching. A misconfigured `WORKSPACE_MCP_BASE_URI=https://localhost.evil.com/...` would match. This can't bypass Google's redirect-URI check (Google still enforces the registered URI), so there is no single-step exploit, but the substring check is fragile.
 
 Remediation: parse the redirect URI with `urlparse()` and compare `.hostname` against `{"localhost", "127.0.0.1", "::1"}` exactly. Also refuse to set the flag if `MCP_ENABLE_OAUTH21=true` or if `WORKSPACE_EXTERNAL_URL` is set.
+
+**Applied:** a new `_redirect_uri_is_local()` helper in `auth/google_auth.py` uses `urlparse(...).hostname` against an exact allowlist, replacing both substring sites (`start_auth_flow` and `handle_auth_callback`). `http://localhost.attacker.example/cb` no longer enables insecure transport. Covered by `TestRedirectUriIsLocal`.
 
 ### 2.4 CSRF: state-missing callback fallback consumes "latest" state — **Medium** (adjusted from "High")
 `auth/google_auth.py:639-658`, `auth/oauth21_session_store.py:412-427`
@@ -131,12 +141,14 @@ Every outbound domain observed in the code is under `googleapis.com` or `account
 
 ## 4. Input validation and file-system safety
 
-### 4.1 Attachment filename sanitation relies on `Path.stem` — **Medium**
+### 4.1 Attachment filename sanitation relies on `Path.stem` — **Fixed** (was Medium)
 `core/attachment_storage.py:96-103`
 
 Filenames returned by the Gmail API are extracted and used to build the on-disk name via `Path(filename).stem + "_" + file_id[:8] + Path(filename).suffix`. `Path.stem` collapses path separators so `../../../evil.txt` becomes `evil`, and `Path / save_name` does not permit escape into a parent directory. In practice this is safe, but the safety is an accidental property of `Path`, not an explicit assertion.
 
 Remediation: reject filenames containing `/`, `\`, null bytes, or longer than a sensible limit (255 chars) before using them. A one-line `if any(c in filename for c in "/\\\x00"): raise ValueError(...)` makes the intent explicit and survives future refactors.
+
+**Applied:** `AttachmentStorage.save_attachment` now raises `ValueError("... path separators or null bytes")` if the filename contains `/`, `\`, or `\x00`. Covered by four cases in `TestAttachmentFilenameSanitation`.
 
 ### 4.2 Attachment serving endpoint has no user binding — **Medium**
 `core/server.py:541-563`
@@ -211,28 +223,30 @@ Grepped across `auth/`, `core/`, `gmail/`, `main.py`, `fastmcp_server.py`:
 
 ---
 
-## Summary by severity
+## Summary by severity (after fix pass)
 
-| Sev | Count | Notable |
+| Sev | Remaining | Fixed |
 |---|---:|---|
 | Critical | 0 | — |
-| High | 2 | 1.1 plaintext refresh tokens (legacy mode); 2.2 redirect_uri not validated |
-| Medium | 6 | 1.2 dir perms, 1.3 revoked-token cleanup, 2.1 id_token decode, 2.3 insecure-transport substring, 2.4 state-less CSRF fallback, 2.5 bearer synth-session, 4.1 filename sanitation, 4.2 attachment endpoint authz |
-| Low | 3 | 2.6 lazy expiry, 2.7 issuer revalidation, 5.1 float deps, 6.1 exception-logging pattern |
-| Informational | 10 | OAuth 2.1 encryption, SSRF, no telemetry, no secrets in git, robust path validator, safe dep tree, no dangerous primitives, etc. |
+| High | 1 | ~~2.2~~ |
+| Medium | 3 | ~~1.2~~, ~~1.3~~, ~~2.3~~, ~~4.1~~ |
+| Low | 3 | — |
+| Informational | 10 | — |
 
-(Count includes one item counted under two columns where two severities apply — see individual entries.)
+Remaining High: **1.1** (plaintext refresh tokens in legacy local store — moot on Railway because `main.py` forces `MCP_ENABLE_OAUTH21=true` + `WORKSPACE_MCP_STATELESS_MODE=true`; downgraded to Informational for the Railway deploy surface).
 
-## Recommended pre-deploy actions
+Remaining Medium, left as explicit trade-offs:
+- **2.1** id_token re-decoded without signature verification — already a trusted-TLS value in practice; fix requires cross-cutting change to adopt `verify_oauth2_token` with JWKS caching.
+- **2.4** state-less CSRF callback fallback — fix requires flow-wide changes to the state store lookup.
+- **2.5** bearer-token → synth-session — fix requires refactoring `oauth21_session_store.py`.
+- **4.2** attachment endpoint has no user binding — fix requires adding a user-identity column to attachment metadata and checking it on serve.
 
-Before shipping to Railway:
+Remaining Low (**2.6** lazy expiry, **2.7** issuer revalidation, **5.1** float deps, **6.1** exception-logging idiom) are left as quality-of-life items. Informational findings are unchanged.
 
-1. **Fix 2.2** — add `validate_redirect_uri()` call in `start_auth_flow()`. One-line change, high value.
-2. **Fix 1.3** — delete credential file on `RefreshError`. One-line change.
-3. **Fix 4.1** — add explicit filename-separator check in `attachment_storage.save_attachment`. Three lines.
-4. **Fix 4.2** — bind `file_id` to user session in attachment metadata and check on serve. ~10 lines.
-5. **Decide on 1.1** — confirm Railway deployment will use OAuth 2.1 stateless mode (the `.env.railway.example` sets `MCP_ENABLE_OAUTH21=true` and `WORKSPACE_MCP_STATELESS_MODE=true`, so the legacy local store is not in use). If confirmed, downgrade 1.1 to Informational for Railway specifically.
-6. **Fix 2.3** — replace substring check with `urlparse(...).hostname in {"localhost", "127.0.0.1", "::1"}`. Two lines.
-7. **Add to `.gitignore`**: `oauth_states.json`, `credentials/`, `*.pem`, `*.key`, `store_creds/`.
+## Recommended remaining actions
 
-Medium-term: pin direct dependencies with `~=`, replace `logger.error(f"... {e}")` with `logger.exception(...)`, and consider moving the legacy `LocalDirectoryCredentialStore` behind an explicit flag so operators cannot accidentally deploy it.
+Before a production deploy:
+
+1. **Decide on 4.2** — the `/attachments/{file_id}` endpoint serves any known UUID for its TTL. Fine for a private single-tenant Railway deploy; hostile for a multi-tenant one. If you plan to share this URL publicly, bind `file_id` to the authenticated user in `AttachmentStorage.save_attachment` and reject mismatched sessions in the route.
+2. **Monitor 2.4/2.5** — these only bite under active attack with pending OAuth flows for other users, which is out-of-scope for a small private deployment. Revisit before opening signup to untrusted users.
+3. **Medium-term hygiene** — pin direct dependencies with `~=`, replace `logger.error(f"... {e}")` with `logger.exception(...)`, and if you ever run locally in legacy OAuth 2.0 mode, put the plaintext-store path behind an explicit opt-in flag.

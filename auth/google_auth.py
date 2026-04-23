@@ -18,7 +18,7 @@ from googleapiclient.errors import HttpError
 from auth.scopes import SCOPES, get_current_scopes, has_required_scopes  # noqa
 from auth.oauth21_session_store import get_oauth21_session_store
 from auth.credential_store import get_credential_store
-from auth.oauth_config import is_stateless_mode
+from auth.oauth_config import is_stateless_mode, get_oauth_config
 from core.config import (
     get_oauth_redirect_uri,
 )
@@ -29,6 +29,24 @@ try:
     from fastmcp.server.dependencies import get_context as get_fastmcp_context
 except ImportError:
     get_fastmcp_context = None
+
+
+# Hostnames for which plaintext HTTP redirects are acceptable during local
+# development (OAUTHLIB_INSECURE_TRANSPORT is auto-enabled for these only).
+_INSECURE_TRANSPORT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _redirect_uri_is_local(redirect_uri: str) -> bool:
+    """Return True only if redirect_uri's hostname is exactly localhost/loopback.
+
+    Substring checks (``"localhost" in redirect_uri``) are unsafe because a
+    hostname like ``localhost.attacker.example`` would match.
+    """
+    try:
+        host = urlparse(redirect_uri).hostname
+    except ValueError:
+        return False
+    return host in _INSECURE_TRANSPORT_HOSTS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -493,10 +511,25 @@ async def start_auth_flow(
 
     # Note: Caller should ensure OAuth callback is available before calling this function
 
+    # Enforce the redirect URI against the configured allowlist. Google enforces
+    # its own allowlist on the registered OAuth client, but rejecting early here
+    # gives a clearer error and defends against a registered-but-unintended URI
+    # leaking into this code path (security audit finding 2.2).
+    if not get_oauth_config().validate_redirect_uri(redirect_uri):
+        logger.error(
+            f"[start_auth_flow] Rejecting unknown redirect_uri: {redirect_uri!r}"
+        )
+        raise GoogleAuthenticationError(
+            f"redirect_uri {redirect_uri!r} is not in the allowed list"
+        )
+
     try:
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ and (
-            "localhost" in redirect_uri or "127.0.0.1" in redirect_uri
-        ):  # Use passed redirect_uri
+        # Auto-enable OAUTHLIB_INSECURE_TRANSPORT only for real loopback hostnames.
+        # Previous substring match permitted URIs like http://localhost.evil.com
+        # (security audit finding 2.3).
+        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ and _redirect_uri_is_local(
+            redirect_uri
+        ):
             logger.warning(
                 "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost/local development."
             )
@@ -617,8 +650,13 @@ def handle_auth_callback(
                 "The 'client_secrets_path' parameter is deprecated. Use GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables instead."
             )
 
-        # Allow HTTP for localhost in development
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ:
+        # Allow HTTP only when the redirect target is a real loopback host
+        # (security audit finding 2.3). For any other redirect URI, require
+        # HTTPS — do not auto-set OAUTHLIB_INSECURE_TRANSPORT.
+        if (
+            "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ
+            and _redirect_uri_is_local(redirect_uri)
+        ):
             logger.warning(
                 "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost development."
             )
@@ -1032,6 +1070,18 @@ def get_credentials(
             logger.warning(
                 f"[get_credentials] RefreshError - token expired/revoked: {e}. User: '{user_google_email}', Session: '{session_id}'"
             )
+            # Purge the stale credential so a revoked refresh token doesn't
+            # linger on disk (security audit finding 1.3).
+            if user_google_email and not is_stateless_mode():
+                try:
+                    get_credential_store().delete_credential(user_google_email)
+                    logger.info(
+                        f"[get_credentials] Deleted revoked credential file for {user_google_email}"
+                    )
+                except Exception as delete_err:
+                    logger.warning(
+                        f"[get_credentials] Failed to delete revoked credential for {user_google_email}: {delete_err}"
+                    )
             # For RefreshError, we should return None to trigger reauthentication
             return None
         except Exception as e:
